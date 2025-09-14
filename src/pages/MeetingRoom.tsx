@@ -29,7 +29,9 @@ const MeetingRoom = () => {
     localStream, 
     remoteStream, 
     initializeSocket, 
-    cleanup 
+    cleanup,
+    getUserMedia,
+    isScreenSharing
   } = useWebRTCStore();
 
   useEffect(() => {
@@ -40,6 +42,20 @@ const MeetingRoom = () => {
 
     // Initialize WebRTC connection
     initializeSocket(roomName);
+
+    // 초기 미디어 스트림 가져오기
+    const initializeMedia = async () => {
+      try {
+        await getUserMedia({
+          video: isVideoEnabled,
+          audio: isAudioEnabled
+        });
+      } catch (error) {
+        console.error('Error initializing media:', error);
+      }
+    };
+
+    initializeMedia();
 
     return () => {
       cleanup();
@@ -99,7 +115,7 @@ const MeetingRoom = () => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-full">
               {/* Local Video */}
               <div className="relative bg-muted rounded-lg overflow-hidden shadow-card">
-                {isVideoEnabled && localStream ? (
+                {localStream && (isVideoEnabled || isScreenSharing) ? (
                   <video
                     ref={localVideoRef}
                     autoPlay
@@ -112,6 +128,9 @@ const MeetingRoom = () => {
                     <div className="text-center">
                       <CameraOff className="h-16 w-16 text-muted-foreground mx-auto mb-2" />
                       <p className="text-muted-foreground">{nickname}</p>
+                      {isScreenSharing && (
+                        <p className="text-sm text-primary mt-2">화면 공유 중</p>
+                      )}
                     </div>
                   </div>
                 )}
@@ -169,9 +188,15 @@ const MeetingRoom = () => {
         </div>
 
         {/* Side Panels */}
-        {isChatOpen && <ChatPanel />}
-        {isWhiteboardOpen && <WhiteboardPanel />}
-        {isSettingsOpen && <SettingsPanel />}
+        <div className={`absolute top-0 right-0 h-full transition-transform duration-300 ease-in-out ${
+          isChatOpen || isWhiteboardOpen || isSettingsOpen 
+            ? 'transform translate-x-0' 
+            : 'transform translate-x-full'
+        }`}>
+          {isChatOpen && <ChatPanel />}
+          {isWhiteboardOpen && <WhiteboardPanel />}
+          {isSettingsOpen && <SettingsPanel />}
+        </div>
       </main>
 
       {/* Control Bar */}

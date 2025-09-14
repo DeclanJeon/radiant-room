@@ -8,9 +8,11 @@ interface WebRTCState {
   peer: SimplePeer.Instance | null;
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
+  originalCameraStream: MediaStream | null; // 화면공유 전 원본 카메라 스트림
   isInitiator: boolean;
   isConnected: boolean;
   isConnecting: boolean;
+  isScreenSharing: boolean;
   
   // Actions
   initializeSocket: (roomId: string) => void;
@@ -18,10 +20,11 @@ interface WebRTCState {
   destroyPeer: () => void;
   setLocalStream: (stream: MediaStream | null) => void;
   setRemoteStream: (stream: MediaStream | null) => void;
+  getUserMedia: (constraints: MediaStreamConstraints) => Promise<void>;
   toggleAudio: () => void;
-  toggleVideo: () => void;
+  toggleVideo: () => Promise<void>;
   startScreenShare: () => Promise<void>;
-  stopScreenShare: () => void;
+  stopScreenShare: () => Promise<void>;
   cleanup: () => void;
 }
 
@@ -31,9 +34,11 @@ export const useWebRTCStore = create<WebRTCState>()(
     peer: null,
     localStream: null,
     remoteStream: null,
+    originalCameraStream: null,
     isInitiator: false,
     isConnected: false,
     isConnecting: false,
+    isScreenSharing: false,
 
     initializeSocket: (roomId) => {
       const socket = io(process.env.NODE_ENV === 'production' ? 'wss://your-server.com' : 'ws://localhost:3001');
@@ -121,6 +126,35 @@ export const useWebRTCStore = create<WebRTCState>()(
       set({ remoteStream: stream });
     },
 
+    getUserMedia: async (constraints) => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        set({ localStream: stream });
+        
+        // 피어가 이미 있다면 스트림 업데이트
+        const { peer } = get();
+        if (peer && peer._pc) {
+          // 오디오 트랙 교체
+          if (constraints.audio && stream.getAudioTracks().length > 0) {
+            const audioSender = peer._pc.getSenders().find(s => s.track?.kind === 'audio');
+            if (audioSender) {
+              await audioSender.replaceTrack(stream.getAudioTracks()[0]);
+            }
+          }
+          
+          // 비디오 트랙 교체
+          if (constraints.video && stream.getVideoTracks().length > 0) {
+            const videoSender = peer._pc.getSenders().find(s => s.track?.kind === 'video');
+            if (videoSender) {
+              await videoSender.replaceTrack(stream.getVideoTracks()[0]);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error getting user media:', error);
+      }
+    },
+
     toggleAudio: () => {
       const { localStream } = get();
       if (localStream) {
@@ -131,8 +165,10 @@ export const useWebRTCStore = create<WebRTCState>()(
       }
     },
 
-    toggleVideo: () => {
-      const { localStream } = get();
+    toggleVideo: async () => {
+      const { localStream, isScreenSharing } = get();
+      if (isScreenSharing) return; // 화면공유 중에는 비디오 토글 비활성화
+      
       if (localStream) {
         const videoTrack = localStream.getVideoTracks()[0];
         if (videoTrack) {
@@ -143,42 +179,92 @@ export const useWebRTCStore = create<WebRTCState>()(
 
     startScreenShare: async () => {
       try {
+        const { localStream, peer } = get();
+        
+        // 현재 카메라 스트림을 백업
+        if (localStream && !get().originalCameraStream) {
+          set({ originalCameraStream: localStream });
+        }
+        
         const screenStream = await navigator.mediaDevices.getDisplayMedia({
           video: true,
           audio: true,
         });
 
-        const { peer } = get();
-        if (peer) {
-          // Replace video track with screen share
+        // 피어가 있으면 비디오 트랙 교체
+        if (peer && peer._pc) {
           const videoTrack = screenStream.getVideoTracks()[0];
-          const sender = peer._pc?.getSenders().find(s => 
-            s.track && s.track.kind === 'video'
-          );
+          const videoSender = peer._pc.getSenders().find(s => s.track?.kind === 'video');
           
-          if (sender && videoTrack) {
-            await sender.replaceTrack(videoTrack);
+          if (videoSender && videoTrack) {
+            await videoSender.replaceTrack(videoTrack);
           }
         }
 
-        // Handle screen share ending
+        // 화면공유 종료 이벤트 처리
         screenStream.getVideoTracks()[0].addEventListener('ended', () => {
           get().stopScreenShare();
         });
 
-        set({ localStream: screenStream });
+        set({ 
+          localStream: screenStream, 
+          isScreenSharing: true 
+        });
       } catch (error) {
         console.error('Error starting screen share:', error);
       }
     },
 
-    stopScreenShare: () => {
-      // This would switch back to camera - implementation depends on your needs
-      console.log('Screen share stopped');
+    stopScreenShare: async () => {
+      try {
+        const { originalCameraStream, peer, localStream } = get();
+        
+        // 현재 화면공유 스트림 중단
+        if (localStream) {
+          localStream.getTracks().forEach(track => track.stop());
+        }
+        
+        // 원본 카메라 스트림으로 복원하거나 새로 생성
+        let cameraStream = originalCameraStream;
+        
+        if (!cameraStream || cameraStream.getTracks().length === 0) {
+          // 원본이 없으면 새 카메라 스트림 생성
+          const { useUserStore } = await import('./userStore');
+          const { isVideoEnabled, isAudioEnabled } = useUserStore.getState();
+          
+          try {
+            cameraStream = await navigator.mediaDevices.getUserMedia({
+              video: isVideoEnabled,
+              audio: isAudioEnabled,
+            });
+          } catch (error) {
+            console.error('Error getting camera back:', error);
+            cameraStream = null;
+          }
+        }
+        
+        // 피어가 있으면 비디오 트랙 복원
+        if (peer && peer._pc && cameraStream) {
+          const videoTrack = cameraStream.getVideoTracks()[0];
+          const videoSender = peer._pc.getSenders().find(s => s.track?.kind === 'video');
+          
+          if (videoSender && videoTrack) {
+            await videoSender.replaceTrack(videoTrack);
+          }
+        }
+        
+        set({ 
+          localStream: cameraStream,
+          isScreenSharing: false,
+          originalCameraStream: null
+        });
+      } catch (error) {
+        console.error('Error stopping screen share:', error);
+      }
     },
 
     cleanup: () => {
-      const { socket, peer, localStream } = get();
+      const { socket, peer, localStream, originalCameraStream } = get();
       
       if (socket) {
         socket.disconnect();
@@ -191,15 +277,21 @@ export const useWebRTCStore = create<WebRTCState>()(
       if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
       }
+      
+      if (originalCameraStream) {
+        originalCameraStream.getTracks().forEach(track => track.stop());
+      }
 
       set({
         socket: null,
         peer: null,
         localStream: null,
         remoteStream: null,
+        originalCameraStream: null,
         isConnected: false,
         isConnecting: false,
         isInitiator: false,
+        isScreenSharing: false,
       });
     },
   }))

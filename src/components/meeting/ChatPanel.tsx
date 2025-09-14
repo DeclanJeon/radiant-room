@@ -33,7 +33,7 @@ export const ChatPanel = () => {
   };
 
   return (
-    <div className="absolute top-0 right-0 h-full w-80 bg-card/95 backdrop-blur-sm border-l border-border/50 flex flex-col shadow-control">
+    <div className="h-full w-80 bg-card/95 backdrop-blur-sm border-l border-border/50 flex flex-col shadow-control animate-slide-in-right">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-border/30">
         <h3 className="font-semibold text-foreground">채팅</h3>

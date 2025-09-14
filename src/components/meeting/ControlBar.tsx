@@ -31,24 +31,31 @@ export const ControlBar = () => {
     toggleAudio, 
     toggleVideo, 
     startScreenShare, 
-    stopScreenShare 
+    stopScreenShare,
+    isScreenSharing: webRTCScreenSharing
   } = useWebRTCStore();
 
-  const handleAudioToggle = () => {
+  const handleAudioToggle = async () => {
     toggleAudio();
     setAudioEnabled(!isAudioEnabled);
   };
 
-  const handleVideoToggle = () => {
-    toggleVideo();
+  const handleVideoToggle = async () => {
+    if (webRTCScreenSharing) return; // 화면공유 중에는 비디오 토글 비활성화
+    
+    await toggleVideo();
     setVideoEnabled(!isVideoEnabled);
   };
 
   const handleScreenShare = async () => {
-    if (isScreenSharing) {
-      stopScreenShare();
-    } else {
-      await startScreenShare();
+    try {
+      if (webRTCScreenSharing) {
+        await stopScreenShare();
+      } else {
+        await startScreenShare();
+      }
+    } catch (error) {
+      console.error('Screen share error:', error);
     }
   };
 
@@ -77,11 +84,11 @@ export const ControlBar = () => {
 
         {/* Screen Share */}
         <Button
-          variant={isScreenSharing ? "control-active" : "control"}
+          variant={webRTCScreenSharing ? "control-active" : "control"}
           size="control-icon"
           onClick={handleScreenShare}
         >
-          {isScreenSharing ? <MonitorStop className="h-5 w-5" /> : <MonitorSpeaker className="h-5 w-5" />}
+          {webRTCScreenSharing ? <MonitorStop className="h-5 w-5" /> : <MonitorSpeaker className="h-5 w-5" />}
         </Button>
 
         {/* Chat */}
