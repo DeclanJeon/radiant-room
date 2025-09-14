@@ -60,8 +60,13 @@ const SetupPage = () => {
   const getDevices = async () => {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
-      const audioInputs = devices.filter(device => device.kind === 'audioinput');
-      const videoInputs = devices.filter(device => device.kind === 'videoinput');
+      // Filter out devices with empty deviceIds and ensure we have valid devices
+      const audioInputs = devices.filter(device => 
+        device.kind === 'audioinput' && device.deviceId && device.deviceId.trim() !== ''
+      );
+      const videoInputs = devices.filter(device => 
+        device.kind === 'videoinput' && device.deviceId && device.deviceId.trim() !== ''
+      );
       
       setAudioDevices(audioInputs);
       setVideoDevices(videoInputs);
@@ -223,9 +228,12 @@ const SetupPage = () => {
                       <SelectValue placeholder="마이크를 선택하세요" />
                     </SelectTrigger>
                     <SelectContent>
-                      {audioDevices.map((device) => (
-                        <SelectItem key={device.deviceId} value={device.deviceId}>
-                          {device.label || `마이크 ${device.deviceId.slice(0, 8)}`}
+                      {audioDevices.map((device, index) => (
+                        <SelectItem 
+                          key={device.deviceId || `audio-${index}`} 
+                          value={device.deviceId || `audio-${index}`}
+                        >
+                          {device.label || `마이크 ${index + 1}`}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -243,9 +251,12 @@ const SetupPage = () => {
                       <SelectValue placeholder="카메라를 선택하세요" />
                     </SelectTrigger>
                     <SelectContent>
-                      {videoDevices.map((device) => (
-                        <SelectItem key={device.deviceId} value={device.deviceId}>
-                          {device.label || `카메라 ${device.deviceId.slice(0, 8)}`}
+                      {videoDevices.map((device, index) => (
+                        <SelectItem 
+                          key={device.deviceId || `video-${index}`} 
+                          value={device.deviceId || `video-${index}`}
+                        >
+                          {device.label || `카메라 ${index + 1}`}
                         </SelectItem>
                       ))}
                     </SelectContent>
